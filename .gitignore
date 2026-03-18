@@ -1,0 +1,22 @@
+# Ambientes e Binários
+py/
+rvc_engine/
+*.exe
+*.dll
+
+# Modelos e Pesos (Extremamente pesados)
+Ronaldo/
+weights/
+logs/
+
+# Datasets e Áudios
+cv-corpus-*.tar.gz
+raw_cv_corpus/
+output_rvc/
+*.wav
+*.mp3
+
+# Logs e Temporários
+*.log
+__pycache__/
+.DS_Store
