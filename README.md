@@ -1,81 +1,70 @@
-RVC Deepfake Dataset Generator
-Pipeline para geração de dataset voltado ao treinamento e validação de detectores de deepfake de áudio. O sistema converte áudios reais do Mozilla Common Voice (Português) para a voz do Ronaldo Fenômeno utilizando a arquitetura RVC v2.
+# RVC Deepfake Dataset Generator
 
-Estrutura do Projeto
-Plaintext
+Este projeto implementa um pipeline completo para a criação de um dataset de alta fidelidade voltado ao treinamento e validação de detectores de deepfake de áudio. O sistema utiliza a arquitetura **RVC v2** (via Applio Engine) para converter áudios reais do [Mozilla Common Voice](https://commonvoice.mozilla.org/) (Português) para a voz do **Ronaldo Fenômeno**.
+
+## Estrutura do Projeto
+
+O diretório está organizado da seguinte forma:
+
+```text
 golden_dataset/
-├── setup_env.bat        # Configuração do ambiente portátil
-├── extract_corpus.py    # Extração e conversão de MP3 para WAV
-├── run_ronaldo_batch.py # Script de inferência em lote
-├── Ronaldo/             # Pesos (.pth) e Index (.index) do modelo
-├── py/                  # Python 3.10 portátil (criado no setup)
-├── rvc_engine/          # Núcleo do Applio RVC
-├── raw_cv_corpus/       # Base de áudios reais (WAV 16kHz)
-└── output_rvc/          # Base de áudios sintéticos (Voz do Ronaldo)
-Guia de Execução
-Pré-requisitos
-Windows 10/11 (64-bit)
+├── setup_env.bat          # Script de bootstrap do ambiente portátil
+├── extract_corpus.py      # Extração e conversão de MP3 para WAV (16kHz)
+├── run_ronaldo_batch.py   # Script principal de inferência em lote
+├── Ronaldo/               # Pesos (.pth) e Index (.index) do modelo RVC
+├── rvc_engine/            # Núcleo do processador Applio RVC (RVC-CLI)
+├── py/                    # Python 3.10 portátil (gerado automaticamente no setup)
+├── raw_cv_corpus/         # Diretório de áudios reais (Target: 8.000 arquivos)
+└── output_rvc/            # Diretório de áudios sintéticos (Voz do Ronaldo)
+```
 
-Espaço em disco: ~15 GB
+## Guia de Execução
 
-Nota: O pipeline foi otimizado para CPU. Não é necessária GPU NVIDIA.
+### Pré-requisitos
+- **Sistema Operacional:** Windows 10/11 (64-bit)
+- **Espaço em Disco:** Mínimo de 15 GB (incluindo o arquivo `.tar.gz`)
+- **Hardware:** O pipeline foi otimizado para **CPU**. Não é necessária GPU NVIDIA.
 
-1. Configuração do Ambiente
-Execute o script de bootstrap para baixar o Python portátil e as dependências (PyTorch CPU, Applio Engine e modelos base RMVPE/ContentVec).
+### 1. Configuração do Ambiente
+Execute o script de bootstrap para baixar o Python portátil e as dependências (PyTorch CPU, Applio Engine e modelos de base RMVPE/ContentVec).
 
-Code snippet
-setup_env.bat
-2. Extração do Corpus
-Converte os clipes do arquivo .tar.gz original para WAV (16kHz mono). O script suporta retomada automática (resume).
+```powershell
+.\setup_env.bat
+```
 
-Code snippet
+### 2. Extração do Corpus
+Este script extrai os clipes do arquivo `cv-corpus-24.0-2025-12-05-pt.tar.gz` original e os converte para WAV (16kHz mono). O processo suporta retomada automática (resume).
+
+```powershell
 .\py\python.exe extract_corpus.py
-Para um teste rápido: .\py\python.exe extract_corpus.py --limit 100
+```
+*Dica: Use `--limit 100` para extrair apenas uma amostra inicial.*
 
-3. Conversão em Lote (Inference)
-Inicia o processo de conversão de voz.
+### 3. Conversão em Lote (Inference)
+Inicia o processo de conversão de voz utilizando o modelo do Ronaldo. O script verifica arquivos já processados para evitar retrabalho.
 
-Code snippet
-# Modo teste (processa apenas 5 arquivos)
-.\py\python.exe run_ronaldo_batch.py 
+**Modo Teste (processa apenas 5 arquivos):**
+```powershell
+.\py\python.exe run_ronaldo_batch.py
+```
 
-# Processamento completo (8.000 arquivos)
+**Processamento Completo (todos os arquivos extraídos):**
+```powershell
 .\py\python.exe run_ronaldo_batch.py --full
-Detalhes Técnicos
-Configurações de Inferência
-Método F0: RMVPE (Equilíbrio entre carga de CPU e qualidade de pitch)
+```
 
-Index Rate: 0.75
+## Detalhes técnicos
 
-Filtro de Proteção: 0.33
+A inferência utiliza as seguintes configurações para garantir qualidade e estabilidade:
 
-Device: CPU (Inferência estável via PyTorch)
+- **Método F0:** `rmvpe` (Equilíbrio ideal entre carga de CPU e precisão de pitch)
+- **Index Rate:** `0.75`
+- **Filtro de Proteção:** `0.33`
+- **Audio Output:** 16kHz, WAV Mono
 
-Performance Estimada (CPU)
-Tempo por áudio: 5 a 20 segundos (variando conforme duração do clipe)
+### Performance (CPU Only)
+O tempo de processamento varia entre 5 a 20 segundos por áudio, dependendo da duração do clipe. Para o dataset completo de 8.000 arquivos, a estimativa total é de aproximadamente 18 a 20 horas de execução contínua.
 
-Estimativa total: ~18 horas para 8.000 arquivos.
+## Licença e Uso
 
-Retomada: O script verifica a existência do arquivo em output_rvc/ antes de processar, permitindo interromper e continuar o processo a qualquer momento.
-
-Dataset Gerado
-Ao final do processamento, o dataset terá duas pastas pareadas com os mesmos nomes de arquivos:
-
-raw_cv_corpus/: Vozes originais (Ground Truth / Real)
-
-output_rvc/: Vozes convertidas (Deepfake / Fake)
-
-Licença e Uso
-Projeto destinado exclusivamente para fins de pesquisa em segurança cibernética e detecção de mídias sintéticas.
-
-O que fazer agora?
-Para atualizar o seu GitHub com esse README novo e limpo:
-
-Salve o arquivo.
-
-No terminal:
-
-PowerShell
-git add README.md
-git commit -m "docs: cleanup readme and remove emojis"
-git push origin main
+Este projeto é destinado exclusivamente para fins de **pesquisa em segurança cibernética** e detecção de mídias sintéticas. O objetivo é fortalecer as defesas contra ataques de engenharia social baseados em voz.
