@@ -6,7 +6,7 @@ Extracts MP3 clips from the Common Voice tar.gz archive and converts
 them to WAV (16 kHz, mono) for RVC inference.
 
 Usage (via portable Python):
-    .\py\python.exe extract_corpus.py [--limit N]
+    .\\py\\python.exe scripts\\extract_corpus.py [--limit N]
 
 Options:
     --limit N   Only extract the first N clips (default: 8000)
@@ -19,11 +19,12 @@ import tarfile
 import time
 
 # ---------------------------------------------------------------------------
-# Paths — all relative to this script's directory
+# Paths — relative to the project root (one level up from scripts/)
 # ---------------------------------------------------------------------------
-ROOT = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(SCRIPT_DIR)
 ARCHIVE = os.path.join(ROOT, "cv-corpus-24.0-2025-12-05-pt.tar.gz")
-OUTPUT_DIR = os.path.join(ROOT, "raw_cv_corpus")
+OUTPUT_DIR = os.path.join(ROOT, "data", "real")
 
 
 def convert_mp3_to_wav(mp3_path: str, wav_path: str) -> bool:
@@ -47,7 +48,6 @@ def extract_and_convert(archive_path: str, output_dir: str, limit: int):
 
     os.makedirs(output_dir, exist_ok=True)
 
-    # Count existing files to support resume
     existing = set(os.listdir(output_dir))
     print(f"[INFO] Found {len(existing)} existing files in {output_dir}")
 
@@ -60,7 +60,6 @@ def extract_and_convert(archive_path: str, output_dir: str, limit: int):
     print(f"[INFO] Extracting up to {limit} clips to: {output_dir}")
     print()
 
-    # Temporary directory for intermediate MP3 files
     tmp_dir = os.path.join(ROOT, "_tmp_extract")
     os.makedirs(tmp_dir, exist_ok=True)
 
@@ -69,8 +68,6 @@ def extract_and_convert(archive_path: str, output_dir: str, limit: int):
             for member in tar:
                 if extracted >= limit:
                     break
-
-                # Only process .mp3 files inside a clips/ directory
                 if not member.isfile():
                     continue
                 if not member.name.endswith(".mp3"):
@@ -78,16 +75,13 @@ def extract_and_convert(archive_path: str, output_dir: str, limit: int):
                 if "/clips/" not in member.name and "\\clips\\" not in member.name:
                     continue
 
-                # Derive output filename
                 base_name = os.path.basename(member.name)
                 wav_name = os.path.splitext(base_name)[0] + ".wav"
 
-                # Skip if already converted (resume support)
                 if wav_name in existing:
                     skipped += 1
                     continue
 
-                # Extract MP3 to temp location
                 try:
                     member_obj = tar.extractfile(member)
                     if member_obj is None:
@@ -97,7 +91,6 @@ def extract_and_convert(archive_path: str, output_dir: str, limit: int):
                     with open(tmp_mp3, "wb") as f:
                         f.write(member_obj.read())
 
-                    # Convert to WAV
                     wav_path = os.path.join(output_dir, wav_name)
                     if convert_mp3_to_wav(tmp_mp3, wav_path):
                         extracted += 1
@@ -109,7 +102,6 @@ def extract_and_convert(archive_path: str, output_dir: str, limit: int):
                     else:
                         errors += 1
 
-                    # Cleanup temp MP3
                     os.remove(tmp_mp3)
 
                 except Exception as e:
@@ -120,7 +112,6 @@ def extract_and_convert(archive_path: str, output_dir: str, limit: int):
         print(f"[ERROR] Failed to open archive: {e}")
         sys.exit(1)
     finally:
-        # Cleanup temp directory
         try:
             os.rmdir(tmp_dir)
         except OSError:

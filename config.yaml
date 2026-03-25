@@ -1,0 +1,22 @@
+# Golden Dataset — Pipeline Configuration
+# =========================================
+
+paths:
+  models_dir: models
+  real_audio_dir: data/real
+  fake_audio_dir: data/fake
+  rvc_engine: rvc_engine
+
+# Default RVC inference parameters (can be overridden per-model)
+rvc_defaults:
+  f0_method: rmvpe
+  index_rate: 0.75
+  protect: 0.33
+  volume_envelope: 0.25
+  hop_length: 128
+  pitch: 0
+  export_format: WAV
+
+# List specific model folder names to process, or leave empty [] to
+# auto-discover ALL folders inside models_dir that contain a .pth + .index.
+active_models: []

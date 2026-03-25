@@ -5,14 +5,13 @@ rvc_engine/
 *.dll
 
 # Modelos e Pesos (Extremamente pesados)
-Ronaldo/
+models/
 weights/
 logs/
 
 # Datasets e Áudios
 cv-corpus-*.tar.gz
-raw_cv_corpus/
-output_rvc/
+data/
 *.wav
 *.mp3
 
@@ -20,3 +19,4 @@ output_rvc/
 *.log
 __pycache__/
 .DS_Store
+_tmp_extract/

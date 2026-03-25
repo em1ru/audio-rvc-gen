@@ -3,12 +3,13 @@ setlocal enabledelayedexpansion
 
 :: ============================================================
 ::  Golden Dataset — Portable Python 3.10 Bootstrap
-::  All paths are relative to this script's directory.
+::  Run from project root:  scripts\setup_env.bat
 :: ============================================================
 
-set "ROOT=%~dp0"
-:: Remove trailing backslash
-if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+:: Resolve ROOT as the parent of scripts\
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+for %%I in ("%SCRIPT_DIR%\..") do set "ROOT=%%~fI"
 
 set "PY_DIR=%ROOT%\py"
 set "PYTHON=%PY_DIR%\python.exe"
@@ -117,7 +118,8 @@ echo [5/5] Installing rvc-python and dependencies...
     faiss-cpu ^
     pydub ^
     scipy ^
-    soundfile
+    soundfile ^
+    pyyaml
 
 if errorlevel 1 (
     echo [ERROR] Dependency installation failed.
@@ -133,12 +135,21 @@ echo.
 echo ============================================================
 echo   Validating installation...
 echo ============================================================
-"%PYTHON%" -c "import torch; import rvc_python; import librosa; import faiss; import pydub; import scipy; import soundfile; print('[OK] All imports successful. torch=' + torch.__version__)"
+"%PYTHON%" -c "import torch; import rvc_python; import librosa; import faiss; import pydub; import scipy; import soundfile; import yaml; print('[OK] All imports successful. torch=' + torch.__version__)"
 if errorlevel 1 (
     echo [ERROR] Validation failed — some imports are broken.
     pause
     exit /b 1
 )
+
+:: --------------------------------------------------
+:: Create directory structure
+:: --------------------------------------------------
+echo.
+echo [OK] Creating directory structure...
+if not exist "%ROOT%\models" mkdir "%ROOT%\models"
+if not exist "%ROOT%\data\real" mkdir "%ROOT%\data\real"
+if not exist "%ROOT%\data\fake" mkdir "%ROOT%\data\fake"
 
 echo.
 echo ============================================================
@@ -148,7 +159,9 @@ echo   Pip:    %PIP%
 echo ============================================================
 echo.
 echo Next steps:
-echo   1. Extract corpus:  "%PYTHON%" "%ROOT%\extract_corpus.py"
-echo   2. Run inference:   "%PYTHON%" "%ROOT%\run_ronaldo_batch.py"
+echo   1. Place voice models in: %ROOT%\models\^<voice_name^>\
+echo   2. Extract corpus:  "%PYTHON%" "%ROOT%\scripts\extract_corpus.py"
+echo   3. Run pipeline:    "%PYTHON%" "%ROOT%\run_pipeline.py" --list-models
+echo   4. Run inference:   "%PYTHON%" "%ROOT%\run_pipeline.py" --full
 echo.
 pause
