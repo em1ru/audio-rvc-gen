@@ -5,25 +5,25 @@ Golden Dataset — Multi-Voice RVC Pipeline
 Converts real audio clips into deepfake versions using multiple RVC voice
 models.  Models are auto-discovered from the models/ directory.
 
-Usage (via portable Python):
-    .\\py\\python.exe run_pipeline.py                   # Test mode (5 files per voice)
-    .\\py\\python.exe run_pipeline.py --full             # Full batch, all voices
-    .\\py\\python.exe run_pipeline.py --voice ronaldo    # Single voice only
-    .\\py\\python.exe run_pipeline.py --limit 20         # 20 files per voice
-    .\\py\\python.exe run_pipeline.py --list-models      # List available models
+Supports two strategies:
+  - stratified (default): Splits the real audio corpus evenly across voices
+    so that total_fake ≈ total_real (balanced 1:1 dataset).
+  - cross: Every real audio is converted by every voice model
+    (N_real × N_voices fakes — much more compute).
 
-Options:
-    --full          Process all files (default: test mode, 5 files)
-    --limit N       Override file limit per voice
-    --voice NAME    Process only the specified voice model
-    --list-models   List detected models and exit
-    --input DIR     Override input directory
-    --config FILE   Path to config.yaml (default: config.yaml)
+Usage (via portable Python):
+    .\\py\\python.exe run_pipeline.py                        # Test mode (5 per voice, stratified)
+    .\\py\\python.exe run_pipeline.py --full                  # Full batch, stratified
+    .\\py\\python.exe run_pipeline.py --strategy cross --full # Full batch, all×all
+    .\\py\\python.exe run_pipeline.py --voice ronaldo         # Single voice only
+    .\\py\\python.exe run_pipeline.py --limit 20              # 20 files per voice
+    .\\py\\python.exe run_pipeline.py --list-models           # List available models
 """
 
 import argparse
 import glob
 import logging
+import math
 import os
 import sys
 import time
@@ -31,7 +31,6 @@ import time
 try:
     import yaml
 except ImportError:
-    # Minimal YAML parser fallback for environments without PyYAML
     yaml = None
 
 # ---------------------------------------------------------------------------
@@ -57,18 +56,16 @@ def load_config(config_path: str) -> dict:
         cfg = _parse_yaml_fallback(config_path)
 
     paths = cfg.get("paths", {})
-    # Resolve relative paths against ROOT
     for key in ("models_dir", "real_audio_dir", "fake_audio_dir", "rvc_engine"):
         val = paths.get(key, "")
         if val and not os.path.isabs(val):
             paths[key] = os.path.join(ROOT, val)
-
     cfg["paths"] = paths
     return cfg
 
 
 def _parse_yaml_fallback(path: str) -> dict:
-    """Bare-bones YAML key: value parser (no nested structures beyond 1 level)."""
+    """Bare-bones YAML key: value parser (1-level nesting)."""
     cfg = {}
     current_section = None
     with open(path, "r", encoding="utf-8") as f:
@@ -84,7 +81,6 @@ def _parse_yaml_fallback(path: str) -> dict:
                     k, v = stripped.split(":", 1)
                     k = k.strip()
                     v = v.strip()
-                    # Parse simple types
                     if v == "[]":
                         v = []
                     elif v.replace(".", "", 1).lstrip("-").isdigit():
@@ -102,7 +98,6 @@ def discover_models(models_dir: str, active_filter: list = None) -> list:
     Returns list of dicts: {name, pth_path, index_path}.
     """
     models = []
-
     if not os.path.isdir(models_dir):
         print(f"[ERROR] Models directory not found: {models_dir}")
         sys.exit(1)
@@ -111,12 +106,9 @@ def discover_models(models_dir: str, active_filter: list = None) -> list:
         model_dir = os.path.join(models_dir, entry)
         if not os.path.isdir(model_dir):
             continue
-
-        # Apply active_models filter
         if active_filter and entry not in active_filter:
             continue
 
-        # Find .pth and .index files
         pth_files = glob.glob(os.path.join(model_dir, "*.pth"))
         index_files = glob.glob(os.path.join(model_dir, "*.index"))
 
@@ -132,7 +124,6 @@ def discover_models(models_dir: str, active_filter: list = None) -> list:
             "pth_path": pth_files[0],
             "index_path": index_files[0],
         })
-
     return models
 
 
@@ -156,32 +147,51 @@ def print_models(models: list):
 
 
 # ---------------------------------------------------------------------------
-# File Selection (with checkpoint/resume)
+# File Selection
 # ---------------------------------------------------------------------------
-def get_pending_files(input_dir: str, output_dir: str, limit: int = None):
+def get_all_input_files(input_dir: str) -> list:
+    """Return sorted list of all WAV file paths in input_dir."""
+    files = sorted(glob.glob(os.path.join(input_dir, "*.wav")))
+    if not files:
+        print(f"[ERROR] No .wav files in {input_dir}")
+        print("  Run: .\\py\\python.exe scripts\\extract_corpus.py")
+        sys.exit(1)
+    return files
+
+
+def stratified_split(all_files: list, models: list) -> dict:
     """
-    Find WAV files in input_dir not yet present in output_dir.
+    Split file list evenly across models (round-robin by chunk).
+    Returns dict: {model_name: [file_path, ...]}.
+    """
+    n = len(models)
+    chunk_size = math.ceil(len(all_files) / n)
+    assignment = {}
+    for i, model in enumerate(models):
+        start = i * chunk_size
+        end = min(start + chunk_size, len(all_files))
+        assignment[model["name"]] = all_files[start:end]
+    return assignment
+
+
+def filter_pending(file_list: list, output_dir: str, limit: int = None):
+    """
+    Given a list of input file paths, filter out already-processed ones.
     Returns list of (input_path, output_path) tuples.
     """
     os.makedirs(output_dir, exist_ok=True)
-
-    input_files = sorted(glob.glob(os.path.join(input_dir, "*.wav")))
-    if not input_files:
-        print(f"[WARN] No .wav files in {input_dir}")
-        return []
-
     existing = set(os.listdir(output_dir))
 
     pending = []
     skipped = 0
-    for inp in input_files:
+    for inp in file_list:
         basename = os.path.basename(inp)
         if basename in existing:
             skipped += 1
             continue
         pending.append((inp, os.path.join(output_dir, basename)))
 
-    print(f"  Total input files:  {len(input_files)}")
+    print(f"  Assigned files:     {len(file_list)}")
     print(f"  Already processed:  {skipped}")
     print(f"  Pending:            {len(pending)}")
 
@@ -206,7 +216,7 @@ def setup_applio(rvc_engine_dir: str):
 # Batch Conversion (per voice)
 # ---------------------------------------------------------------------------
 def convert_voice(model: dict, pending: list, rvc_params: dict,
-                  rvc_engine_dir: str, is_test: bool):
+                  rvc_engine_dir: str):
     """Run RVC inference for a single voice model over all pending files."""
     setup_applio(rvc_engine_dir)
 
@@ -306,6 +316,11 @@ def main():
                         help="Max files per voice model")
     parser.add_argument("--voice", type=str, default=None,
                         help="Process only this voice model (folder name)")
+    parser.add_argument("--strategy", type=str, default="stratified",
+                        choices=["stratified", "cross"],
+                        help="How to assign real audios to voices: "
+                             "'stratified' splits evenly (default), "
+                             "'cross' uses all audios for every voice")
     parser.add_argument("--list-models", action="store_true",
                         help="List discovered models and exit")
     parser.add_argument("--input", type=str, default=None,
@@ -324,7 +339,6 @@ def main():
     rvc_params = cfg.get("rvc_defaults", {})
     active_filter = cfg.get("active_models", []) or None
 
-    # Override with --voice if given
     if args.voice:
         active_filter = [args.voice]
 
@@ -347,6 +361,9 @@ def main():
         print("  Run: .\\py\\python.exe scripts\\extract_corpus.py")
         sys.exit(1)
 
+    # --- Get all input files ---
+    all_files = get_all_input_files(input_dir)
+
     # --- Determine limit ---
     if args.limit is not None:
         limit = args.limit
@@ -361,7 +378,19 @@ def main():
         print("*" * 60)
         print()
 
-    # --- Setup ---
+    # --- Strategy ---
+    strategy = args.strategy
+    if args.voice:
+        # Single voice mode always gets all files (like cross for 1 voice)
+        strategy = "cross"
+
+    if strategy == "stratified":
+        assignment = stratified_split(all_files, models)
+    else:
+        # Cross: every voice gets all files
+        assignment = {m["name"]: all_files for m in models}
+
+    # --- Setup logging ---
     logging.basicConfig(
         filename=ERROR_LOG,
         level=logging.ERROR,
@@ -375,30 +404,39 @@ def main():
         print("  Run scripts\\setup_env.bat first.")
         sys.exit(1)
 
-    # --- Run pipeline for each voice ---
+    # --- Print plan ---
+    total_assigned = sum(len(v) for v in assignment.values())
     print(f"\n{'='*60}")
     print(f"  GOLDEN DATASET — MULTI-VOICE PIPELINE")
-    print(f"  Voices:  {', '.join(m['name'] for m in models)}")
-    print(f"  Input:   {input_dir}")
-    print(f"  Mode:    {'FULL' if args.full else f'TEST ({limit} per voice)'}")
+    print(f"  Strategy:    {strategy.upper()}")
+    print(f"  Voices:      {len(models)}")
+    print(f"  Real audios: {len(all_files)}")
+    print(f"  Assigned:    {total_assigned} conversions")
+    print(f"  Mode:        {'FULL' if args.full else f'TEST ({limit} per voice)'}")
     print(f"{'='*60}")
 
+    print(f"\n  Assignment:")
+    for m in models:
+        n = len(assignment[m["name"]])
+        print(f"    {m['name']:25s} → {n} files")
+
+    # --- Run pipeline for each voice ---
     grand_success = 0
     grand_errors = 0
     t_grand = time.time()
 
     for idx, model in enumerate(models, 1):
         output_dir = os.path.join(paths["fake_audio_dir"], model["name"])
+        voice_files = assignment[model["name"]]
 
         print(f"\n{'─'*60}")
         print(f"  Voice [{idx}/{len(models)}]: {model['name']}")
         print(f"  Output: {output_dir}")
         print(f"{'─'*60}")
 
-        pending = get_pending_files(input_dir, output_dir, limit)
+        pending = filter_pending(voice_files, output_dir, limit)
         if pending:
-            s, e = convert_voice(model, pending, rvc_params, rvc_engine_dir,
-                                 not args.full)
+            s, e = convert_voice(model, pending, rvc_params, rvc_engine_dir)
             grand_success += s
             grand_errors += e
         else:
@@ -408,6 +446,7 @@ def main():
     grand_elapsed = time.time() - t_grand
     print(f"\n{'='*60}")
     print(f"  PIPELINE COMPLETE")
+    print(f"  Strategy:         {strategy}")
     print(f"  Voices processed: {len(models)}")
     print(f"  Total converted:  {grand_success}")
     print(f"  Total errors:     {grand_errors}")
