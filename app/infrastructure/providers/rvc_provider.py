@@ -97,7 +97,7 @@ class RvcProvider(IVoiceConverter):
         )
 
         voice_converter = VoiceConverter()
-        success = 0
+        converted_files: List[AudioFile] = []
         errors = 0
         t_start = time.time()
 
@@ -117,15 +117,16 @@ class RvcProvider(IVoiceConverter):
                         f"{model.name}|{audio_file.filename}|{error_message}"
                     )
                 else:
-                    success += 1
+                    converted_files.append(audio_file)
                 progress.update(1)
 
         elapsed = time.time() - t_start
         return ConversionResult(
             model_name=model.name,
-            success_count=success,
+            success_count=len(converted_files),
             error_count=errors,
             elapsed_seconds=elapsed,
+            converted_files=converted_files,
         )
 
     def _convert_single(

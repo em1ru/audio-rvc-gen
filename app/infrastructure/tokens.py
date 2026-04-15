@@ -26,3 +26,6 @@ FILE_ASSIGNMENT_SERVICE: str = "FILE_ASSIGNMENT_SERVICE"
 
 # Identificador do caso de uso principal do pipeline.
 RUN_PIPELINE: str = "RUN_PIPELINE"
+
+# Identificador do repositório de manifesto do golden dataset.
+MANIFEST_REPOSITORY: str = "MANIFEST_REPOSITORY"

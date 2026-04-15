@@ -2,7 +2,7 @@
 Entidade que representa o resultado agregado de uma sessão de conversão de voz.
 
 Exporta:
-    - ConversionResult (dataclass): Métricas de sucesso, erro e tempo de um modelo.
+    - ConversionResult (dataclass): Métricas de sucesso, erro, tempo e arquivos convertidos.
 
 Utilizado por:
     - app.core.use_cases.run_pipeline_use_case
@@ -11,7 +11,10 @@ Utilizado por:
     - app.infrastructure.providers.rvc_provider
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List
+
+from app.core.entities.audio_file import AudioFile
 
 
 @dataclass
@@ -24,6 +27,8 @@ class ConversionResult:
         success_count (int): Número de arquivos convertidos com sucesso.
         error_count (int): Número de arquivos que falharam na conversão.
         elapsed_seconds (float): Tempo total de processamento em segundos.
+        converted_files (List[AudioFile]): Arquivos convertidos com sucesso,
+            usados para geração do manifesto do golden dataset.
 
     Utilizado por:
         - app.core.use_cases.run_pipeline_use_case.RunPipelineUseCase
@@ -34,3 +39,4 @@ class ConversionResult:
     success_count: int
     error_count: int
     elapsed_seconds: float
+    converted_files: List[AudioFile] = field(default_factory=list)
