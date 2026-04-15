@@ -1,30 +1,49 @@
 # RVC Multi-Voice Deepfake Dataset Generator
 
-Pipeline para gerar um **golden dataset** de áudios deepfake a partir de vozes reais. Converte clipes do [Mozilla Common Voice](https://commonvoice.mozilla.org/) usando múltiplos modelos **RVC v2** (via Applio Engine) para criar pares real/fake para treino de detectores.
+Pipeline para gerar um **golden dataset** de áudios deepfake a partir de vozes reais. Converte clipes do [Mozilla Common Voice](https://commonvoice.mozilla.org/) usando múltiplos modelos **RVC v2** (via Applio Engine) para criar pares real/fake destinados ao treino de detectores de áudio sintético.
 
 ## Estrutura do Projeto
 
 ```text
 golden_dataset/
-├── run_pipeline.py          # Script principal — multi-voice batch conversion
+├── main.py                  # Entry point da aplicação
 ├── config.yaml              # Configuração central (parâmetros RVC, caminhos)
+├── requirements.txt         # Dependências diretas do projeto
+│
+├── app/                     # Código-fonte (Clean Architecture — ExACTa-PUC)
+│   ├── app_module.py        # Módulo raiz: carrega config, injeta dependências
+│   ├── core/                # Núcleo — sem dependências externas
+│   │   ├── constants/       # Constantes configuráveis
+│   │   ├── entities/        # VoiceModel, AudioFile, RvcParams, PipelineConfig...
+│   │   ├── enums/           # AssignmentStrategy, F0Method
+│   │   ├── exceptions/      # Exceções de domínio tipadas
+│   │   ├── interfaces/      # Contratos (IModelRepository, IVoiceConverter...)
+│   │   └── use_cases/       # RunPipelineUseCase
+│   ├── presentation/        # Camada de interação com o usuário
+│   │   ├── controllers/     # PipelineController (CLI → UseCase)
+│   │   └── dtos/            # PipelineRequestDTO, PipelineResultDTO
+│   └── infrastructure/      # Integrações externas
+│       ├── factory.py       # Instancia e injeta dependências
+│       ├── tokens.py        # Identificadores de dependências
+│       ├── mappers/         # ModelMapper (filesystem → VoiceModel)
+│       ├── providers/       # RvcProvider (wraps Applio VoiceConverter)
+│       ├── repositories/    # ModelRepository, AudioRepository
+│       └── services/        # FileAssignmentService (stratified / cross)
 │
 ├── models/                  # Modelos de voz RVC (um por subpasta)
-│   ├── ronaldo/             #   └── .pth + .index
-│   └── <outra_voz>/         #   └── .pth + .index
+│   └── <nome_da_voz>/       # └── <modelo>.pth + <modelo>.index
 │
 ├── data/
-│   ├── real/                # Áudios reais (Common Voice, 16kHz WAV)
-│   └── fake/                # Áudios gerados, organizados por voz
-│       ├── ronaldo/
-│       └── <outra_voz>/
+│   ├── real/                # Áudios reais (Common Voice, 16 kHz WAV mono)
+│   └── fake/                # Deepfakes gerados, organizados por modelo
+│       └── <nome_da_voz>/
 │
 ├── scripts/
-│   ├── setup_env.bat        # Bootstrap do ambiente portátil
+│   ├── setup_env.bat        # Bootstrap do ambiente Python portátil (Windows)
 │   └── extract_corpus.py    # Extração do Common Voice → data/real/
 │
-├── rvc_engine/              # Applio RVC engine (gerado no setup)
-└── py/                      # Python 3.10 portátil (gerado no setup)
+├── rvc_engine/              # Submódulo Applio RVC v2 (engine de conversão)
+└── py/                      # Python 3.10 portátil (gerado pelo setup_env.bat)
 ```
 
 ## Como Usar
@@ -35,27 +54,26 @@ golden_dataset/
 scripts\setup_env.bat
 ```
 
+Instala um Python 3.10 portátil em `py/` com todas as dependências RVC. Não requer Python instalado no sistema.
+
 ### 2. Adicionar Modelos de Voz
 
-Coloque os arquivos `.pth` e `.index` de cada modelo dentro de `models/<nome_da_voz>/`:
+Coloque os arquivos `.pth` e `.index` de cada modelo em `models/<nome_da_voz>/`:
 
 ```text
 models/
 ├── ronaldo/
 │   ├── Ronaldo.pth
 │   └── added_IVF370_Flat_nprobe_1_Ronaldo_v2.index
-├── lula/
-│   ├── Lula.pth
-│   └── Lula.index
-└── trump/
-    ├── Trump.pth
-    └── Trump.index
+└── lula/
+    ├── Lula.pth
+    └── Lula.index
 ```
 
 ### 3. Extrair Corpus de Áudios Reais
 
 ```powershell
-.\py\python.exe scripts\extract_corpus.py            # 8000 clipes
+.\py\python.exe scripts\extract_corpus.py             # 8.000 clipes (padrão)
 .\py\python.exe scripts\extract_corpus.py --limit 100 # Amostra menor
 ```
 
@@ -63,34 +81,50 @@ models/
 
 ```powershell
 # Listar modelos detectados
-.\py\python.exe run_pipeline.py --list-models
+.\py\python.exe main.py --list-models
 
-# Teste rápido (5 arquivos por voz)
-.\py\python.exe run_pipeline.py
+# Teste rápido (5 arquivos por voz, stratified)
+.\py\python.exe main.py
 
 # Apenas uma voz específica
-.\py\python.exe run_pipeline.py --voice ronaldo --limit 20
+.\py\python.exe main.py --voice ronaldo --limit 20
 
-# Processamento completo (todas as vozes, todos os áudios)
-.\py\python.exe run_pipeline.py --full
+# Lote completo — stratified (total_fake ≈ total_real)
+.\py\python.exe main.py --full
+
+# Lote completo — cross (cada áudio convertido por todos os modelos)
+.\py\python.exe main.py --strategy cross --full
 ```
+
+## Estratégias de Atribuição
+
+| Estratégia | Comportamento | Conversões totais |
+|---|---|---|
+| `stratified` (padrão) | Divide os áudios por round-robin entre os modelos | `total_real` |
+| `cross` | Cada áudio é convertido por todos os modelos | `total_real × N_modelos` |
 
 ## Parâmetros RVC
 
-Configuráveis via `config.yaml`:
+Configuráveis via `config.yaml` na seção `rvc_defaults`:
 
 | Parâmetro | Padrão | Descrição |
-|-----------|--------|-----------|
-| `f0_method` | `rmvpe` | Método de extração de pitch |
-| `index_rate` | `0.75` | Taxa de influência do index |
-| `protect` | `0.33` | Proteção de consoantes |
-| `hop_length` | `128` | Hop length |
-| `pitch` | `0` | Ajuste de pitch (semitons) |
+|---|---|---|
+| `f0_method` | `rmvpe` | Algoritmo de extração de pitch (rmvpe, fcpe, crepe, harvest) |
+| `index_rate` | `0.75` | Peso do índice FAISS na identidade vocal (0.0–1.0) |
+| `protect` | `0.33` | Proteção de consoantes contra artefatos (0.0–0.5) |
+| `volume_envelope` | `0.25` | Mistura de envelope de volume origem/destino (0.0–1.0) |
+| `hop_length` | `128` | Tamanho do salto de quadro para extração de F0 |
+| `pitch` | `0` | Deslocamento de pitch em semitons (0 = sem alteração) |
+
+## Logs
+
+- **Console**: mensagens `[INFO]` / `[WARNING]` / `[CRITICAL]` em tempo real.
+- **`conversion_errors.log`**: registro estruturado de falhas por arquivo (`timestamp | modelo | arquivo | erro`).
 
 ## Performance (CPU Only)
 
-~5-20 segundos por áudio, dependendo da duração. Para 8.000 arquivos × N vozes, estimar ~20h × N.
+~5–20 segundos por áudio. Para 8.000 arquivos com 6 modelos em estratégia `stratified` (~1.333 por modelo), estimar ~4–7 horas de CPU.
 
-## Licença e Uso
+## Uso
 
-Projeto exclusivo para **pesquisa em segurança cibernética** e detecção de mídias sintéticas.
+Projeto destinado exclusivamente a **pesquisa em segurança cibernética** e detecção de mídias sintéticas.
