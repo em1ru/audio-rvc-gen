@@ -15,6 +15,9 @@ data/
 *.wav
 *.mp3
 
+# Variáveis de ambiente (chaves de API, tokens)
+.env
+
 # Logs e Temporários
 *.log
 __pycache__/

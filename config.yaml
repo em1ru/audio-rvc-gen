@@ -28,6 +28,9 @@ elevenlabs:
   model_id: eleven_multilingual_sts_v2
   output_format: pcm_16000
   voices:
-    # Add voices below. voice_id can be found at elevenlabs.io/voice-library.
-    # - name: ExampleVoice
-    #   voice_id: VOICE_ID_HERE
+    - name: pt_voice_1
+      voice_id: RGymW84CSmfVugnA5tvA
+    - name: pt_voice_2
+      voice_id: 4J31DrhygVjvFsoj7BsM
+    - name: pt_voice_3
+      voice_id: 3Je7qW9yPOhc47iG41pH

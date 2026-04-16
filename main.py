@@ -15,7 +15,12 @@ Uso (via Python portátil):
 
 import sys
 
+from dotenv import load_dotenv
+
 from app.app_module import AppModule
+
+# Carrega variáveis de ambiente do .env (ELEVENLABS_API_KEY, etc.)
+load_dotenv()
 
 
 def main() -> None:
