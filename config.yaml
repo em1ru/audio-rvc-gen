@@ -20,3 +20,14 @@ rvc_defaults:
 # List specific model folder names to process, or leave empty [] to
 # auto-discover ALL folders inside models_dir that contain a .pth + .index.
 active_models: []
+
+# ElevenLabs speech-to-speech configuration
+# Run with: python main.py --method elevenlabs
+# Requires: ELEVENLABS_API_KEY environment variable
+elevenlabs:
+  model_id: eleven_multilingual_sts_v2
+  output_format: pcm_16000
+  voices:
+    # Add voices below. voice_id can be found at elevenlabs.io/voice-library.
+    # - name: ExampleVoice
+    #   voice_id: VOICE_ID_HERE

@@ -9,7 +9,7 @@ Dependências:
     - IModelRepository: acesso aos modelos de voz disponíveis no sistema de arquivos.
     - IAudioRepository: leitura de áudios reais e controle de arquivos pendentes.
     - IFileAssignmentService: distribuição dos arquivos entre os modelos.
-    - IVoiceConverter: execução da conversão de voz via engine RVC.
+    - IVoiceConverter: execução da conversão de voz via engine RVC ou API ElevenLabs.
     - IManifestRepository: persistência incremental do manifesto CSV.
 
 Utilizado por:
@@ -25,7 +25,9 @@ import os
 from datetime import datetime, timezone
 from typing import List, Optional
 
+from app.core.entities.conversion_params import ConversionParams
 from app.core.entities.conversion_result import ConversionResult
+from app.core.entities.elevenlabs_params import ElevenLabsParams
 from app.core.entities.manifest_entry import ManifestEntry, ManifestLabel, ManifestMethod
 from app.core.entities.rvc_params import RvcParams
 from app.core.enums.assignment_strategy import AssignmentStrategy
@@ -46,13 +48,13 @@ class RunPipelineUseCase:
 
     Após cada execução, atualiza incrementalmente o manifesto CSV com entradas
     para todos os áudios reais disponíveis e para os fakes gerados na sessão,
-    deduplicando por filename para evitar entradas repetidas entre execuções.
+    deduplicando por (filename, voice_model) para evitar entradas repetidas entre execuções.
 
     Atributos:
         _model_repo (IModelRepository): Repositório de descoberta de modelos de voz.
         _audio_repo (IAudioRepository): Repositório de acesso aos arquivos de áudio.
         _assignment_service (IFileAssignmentService): Serviço de distribuição de arquivos.
-        _voice_converter (IVoiceConverter): Provedor de conversão de voz via RVC.
+        _voice_converter (IVoiceConverter): Provedor de conversão de voz (RVC ou ElevenLabs).
         _manifest_repo (IManifestRepository): Repositório de persistência do manifesto.
 
     Métodos Públicos:
@@ -84,7 +86,7 @@ class RunPipelineUseCase:
     def execute(
         self,
         strategy: AssignmentStrategy,
-        rvc_params: RvcParams,
+        conversion_params: ConversionParams,
         active_filter: Optional[List[str]] = None,
         limit: Optional[int] = None,
     ) -> List[ConversionResult]:
@@ -94,7 +96,8 @@ class RunPipelineUseCase:
         Args:
             strategy (AssignmentStrategy): Como distribuir os áudios reais entre os modelos.
                 STRATIFIED divide por round-robin; CROSS usa todos os arquivos em cada modelo.
-            rvc_params (RvcParams): Parâmetros de inferência aplicados a todos os modelos.
+            conversion_params (ConversionParams): Parâmetros de inferência do backend ativo
+                (RvcParams para RVC, ElevenLabsParams para ElevenLabs).
             active_filter (Optional[List[str]]): Nomes de modelos a processar;
                 None processa todos os modelos descobertos.
             limit (Optional[int]): Número máximo de arquivos por modelo;
@@ -143,7 +146,7 @@ class RunPipelineUseCase:
                 ))
                 continue
 
-            result = self._voice_converter.convert_batch(model, pending, rvc_params)
+            result = self._voice_converter.convert_batch(model, pending, conversion_params)
             results.append(result)
 
             _log.info(
@@ -152,7 +155,7 @@ class RunPipelineUseCase:
                 f"{result.elapsed_seconds:.1f}s."
             )
 
-        self._update_manifest(source_paths, results, rvc_params)
+        self._update_manifest(source_paths, results, conversion_params)
         return results
 
     def list_available_models(
@@ -177,29 +180,32 @@ class RunPipelineUseCase:
         self,
         source_paths: List[str],
         results: List[ConversionResult],
-        rvc_params: RvcParams,
+        params: ConversionParams,
     ) -> None:
         """
         Atualiza o manifesto CSV com entradas reais e fakes da sessão atual.
 
         Carrega o manifesto existente, adiciona novas entradas (reais e fakes),
-        deduplica por filename e persiste. Entradas reais já existentes não são
-        duplicadas; fakes são adicionados apenas os novos desta sessão.
+        deduplica por (filename, voice_model) e persiste. Entradas já existentes
+        não são duplicadas; fakes são adicionados apenas os novos desta sessão.
 
         Args:
             source_paths (List[str]): Caminhos de todos os áudios reais disponíveis.
             results (List[ConversionResult]): Resultados da sessão de conversão.
-            rvc_params (RvcParams): Parâmetros RVC usados nas conversões.
+            params (ConversionParams): Parâmetros usados nas conversões da sessão.
         """
         existing = self._manifest_repo.load()
-        existing_filenames = {e.filename for e in existing}
+
+        # Chave composta (filename, voice_model) garante unicidade por áudio e modelo.
+        # Reais têm voice_model=""; fakes têm voice_model=nome_do_modelo.
+        existing_keys = {(e.filename, e.voice_model) for e in existing}
 
         new_entries: List[ManifestEntry] = []
 
         # Entradas para todos os áudios reais ainda não registrados no manifesto
         for path in source_paths:
             filename = os.path.basename(path)
-            if filename not in existing_filenames:
+            if (filename, "") not in existing_keys:
                 new_entries.append(ManifestEntry(
                     filename=filename,
                     label=ManifestLabel.REAL,
@@ -219,22 +225,47 @@ class RunPipelineUseCase:
         generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         for result in results:
             for audio_file in result.converted_files:
-                fake_key = f"{result.model_name}/{audio_file.filename}"
-                if fake_key not in existing_filenames:
-                    new_entries.append(ManifestEntry(
+                if (audio_file.filename, result.model_name) in existing_keys:
+                    continue
+
+                if isinstance(params, RvcParams):
+                    entry = ManifestEntry(
                         filename=audio_file.filename,
                         label=ManifestLabel.FAKE,
                         method=ManifestMethod.RVC,
                         voice_model=result.model_name,
                         source_file=os.path.basename(audio_file.source_path),
-                        f0_method=rvc_params.f0_method.value,
-                        index_rate=rvc_params.index_rate,
-                        protect=rvc_params.protect,
-                        volume_envelope=rvc_params.volume_envelope,
-                        hop_length=rvc_params.hop_length,
-                        pitch=rvc_params.pitch,
+                        f0_method=params.f0_method.value,
+                        index_rate=params.index_rate,
+                        protect=params.protect,
+                        volume_envelope=params.volume_envelope,
+                        hop_length=params.hop_length,
+                        pitch=params.pitch,
                         generated_at=generated_at,
-                    ))
+                    )
+                elif isinstance(params, ElevenLabsParams):
+                    entry = ManifestEntry(
+                        filename=audio_file.filename,
+                        label=ManifestLabel.FAKE,
+                        method=ManifestMethod.ELEVENLABS,
+                        voice_model=result.model_name,
+                        source_file=os.path.basename(audio_file.source_path),
+                        f0_method="",
+                        index_rate=None,
+                        protect=None,
+                        volume_envelope=None,
+                        hop_length=None,
+                        pitch=None,
+                        generated_at=generated_at,
+                    )
+                else:
+                    _log.warning(
+                        f"Tipo de params desconhecido ({type(params).__name__}) — "
+                        "entrada do manifesto ignorada."
+                    )
+                    continue
+
+                new_entries.append(entry)
 
         if not new_entries:
             _log.info("Manifesto: nenhuma nova entrada a adicionar.")

@@ -25,6 +25,7 @@ from typing import List, Optional
 import tqdm
 
 from app.core.entities.audio_file import AudioFile
+from app.core.entities.conversion_params import ConversionParams
 from app.core.entities.conversion_result import ConversionResult
 from app.core.entities.rvc_params import RvcParams
 from app.core.entities.voice_model import VoiceModel
@@ -69,7 +70,7 @@ class RvcProvider(IVoiceConverter):
         self,
         model: VoiceModel,
         files: List[AudioFile],
-        params: RvcParams,
+        params: ConversionParams,
     ) -> ConversionResult:
         """
         Converte um lote de arquivos de áudio para a voz do modelo fornecido.
@@ -77,14 +78,18 @@ class RvcProvider(IVoiceConverter):
         Args:
             model (VoiceModel): Modelo de voz de destino (pesos .pth + índice FAISS .index).
             files (List[AudioFile]): Arquivos de áudio pendentes a converter.
-            params (RvcParams): Parâmetros de inferência RVC (F0, index_rate, pitch...).
+            params (ConversionParams): Deve ser RvcParams com F0, index_rate, pitch, etc.
 
         Returns:
             ConversionResult: Resultado com contagem de sucessos, erros e tempo total.
 
         Raises:
-            RvcEngineError: Se o diretório do engine RVC não existir.
+            RvcEngineError: Se o diretório do engine RVC não existir ou params inválidos.
         """
+        if not isinstance(params, RvcParams):
+            raise RvcEngineError(
+                f"RvcProvider requer RvcParams, recebeu {type(params).__name__}."
+            )
         self._ensure_engine_ready()
 
         from rvc.infer.infer import VoiceConverter  # importação após setup do PYTHONPATH
@@ -134,7 +139,7 @@ class RvcProvider(IVoiceConverter):
         voice_converter: object,
         model: VoiceModel,
         audio_file: AudioFile,
-        params: RvcParams,
+        params: ConversionParams,
     ) -> Optional[str]:
         """
         Executa a conversão de um único arquivo de áudio via VoiceConverter.

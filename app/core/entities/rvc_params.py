@@ -5,6 +5,7 @@ Exporta:
     - RvcParams (dataclass): Configuração completa de uma execução de conversão de voz.
 
 Dependências:
+    - app.core.entities.conversion_params.ConversionParams
     - app.core.enums.f0_method.F0Method
 
 Utilizado por:
@@ -16,11 +17,12 @@ Utilizado por:
 
 from dataclasses import dataclass
 
+from app.core.entities.conversion_params import ConversionParams
 from app.core.enums.f0_method import F0Method
 
 
 @dataclass(frozen=True)
-class RvcParams:
+class RvcParams(ConversionParams):
     """
     Parâmetros de configuração do algoritmo de conversão de voz RVC v2.
 

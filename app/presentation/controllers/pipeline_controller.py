@@ -7,7 +7,7 @@ Exporta:
 
 Dependências:
     - app.core.use_cases.run_pipeline_use_case.RunPipelineUseCase (via injeção).
-    - app.core.entities.rvc_params.RvcParams (parâmetros do config.yaml, via injeção).
+    - app.core.entities.conversion_params.ConversionParams (parâmetros injetados pelo AppModule).
 
 Utilizado por:
     - app.app_module.AppModule.start
@@ -25,6 +25,7 @@ import time
 from typing import List
 
 from app.core.constants.pipeline_constants import TEST_LIMIT
+from app.core.entities.conversion_params import ConversionParams
 from app.core.entities.rvc_params import RvcParams
 from app.core.enums.assignment_strategy import AssignmentStrategy
 from app.core.exceptions.pipeline_exceptions import AudioInputError, ModelNotFoundError
@@ -42,7 +43,8 @@ class PipelineController:
 
     Atributos:
         _use_case (RunPipelineUseCase): Caso de uso injetado para execução do pipeline.
-        _rvc_params (RvcParams): Parâmetros RVC carregados do config.yaml via AppModule.
+        _conversion_params (ConversionParams): Parâmetros do backend ativo (RVC ou ElevenLabs),
+            carregados do config.yaml via AppModule.
 
     Métodos Públicos:
         execute: Interpreta argv, constrói o DTO e delega ao caso de uso.
@@ -54,9 +56,11 @@ class PipelineController:
         - Encapsula ModelNotFoundError e AudioInputError como SystemExit(1).
     """
 
-    def __init__(self, use_case: RunPipelineUseCase, rvc_params: RvcParams) -> None:
+    def __init__(
+        self, use_case: RunPipelineUseCase, conversion_params: ConversionParams
+    ) -> None:
         self._use_case = use_case
-        self._rvc_params = rvc_params
+        self._conversion_params = conversion_params
 
     def execute(self, argv: List[str]) -> None:
         """
@@ -81,7 +85,7 @@ class PipelineController:
         try:
             results = self._use_case.execute(
                 strategy=request.strategy,
-                rvc_params=request.rvc_params,
+                conversion_params=request.conversion_params,
                 active_filter=request.active_filter,
                 limit=request.limit,
             )
@@ -109,7 +113,16 @@ class PipelineController:
             argparse.Namespace: Argumentos analisados.
         """
         parser = argparse.ArgumentParser(
-            description="Golden Dataset — Pipeline de Conversão de Voz (RVC v2)"
+            description="Golden Dataset — Pipeline de Conversão de Voz"
+        )
+        parser.add_argument(
+            "--method", type=str, default="rvc",
+            choices=["rvc", "elevenlabs"],
+            help=(
+                "Backend de conversão de voz: "
+                "'rvc' usa o engine Applio localmente (padrão); "
+                "'elevenlabs' usa a API ElevenLabs speech-to-speech (requer ELEVENLABS_API_KEY)."
+            ),
         )
         parser.add_argument(
             "--full", action="store_true",
@@ -121,7 +134,7 @@ class PipelineController:
         )
         parser.add_argument(
             "--voice", type=str, default=None,
-            help="Processa apenas este modelo de voz (nome da pasta em models/).",
+            help="Processa apenas este modelo de voz (nome da pasta em models/ ou da voz configurada).",
         )
         parser.add_argument(
             "--strategy", type=str, default=AssignmentStrategy.STRATIFIED.value,
@@ -176,7 +189,7 @@ class PipelineController:
 
         return PipelineRequestDTO(
             strategy=strategy,
-            rvc_params=self._rvc_params,
+            conversion_params=self._conversion_params,
             active_filter=active_filter,
             limit=limit,
             is_test_mode=is_test_mode,
@@ -192,32 +205,41 @@ class PipelineController:
 
         if not models:
             _log.warning("Nenhum modelo de voz encontrado.")
-            _log.warning(
-                "Adicione subpastas com arquivos .pth e .index em models/<nome_do_modelo>/."
-            )
             return
 
         _log.info(f"{len(models)} modelo(s) disponível(is):")
         for model in models:
-            pth_mb = os.path.getsize(model.pth_path) / (1024 * 1024)
-            idx_mb = os.path.getsize(model.index_path) / (1024 * 1024)
-            _log.info(
-                f"  {model.name:<25} "
-                f"PTH: {os.path.basename(model.pth_path)} ({pth_mb:.1f} MB)  "
-                f"Index: {os.path.basename(model.index_path)} ({idx_mb:.1f} MB)"
-            )
+            if model.pth_path:
+                pth_mb = os.path.getsize(model.pth_path) / (1024 * 1024)
+                idx_mb = os.path.getsize(model.index_path) / (1024 * 1024)
+                _log.info(
+                    f"  {model.name:<25} "
+                    f"PTH: {os.path.basename(model.pth_path)} ({pth_mb:.1f} MB)  "
+                    f"Index: {os.path.basename(model.index_path)} ({idx_mb:.1f} MB)"
+                )
+            else:
+                _log.info(f"  {model.name:<25} voice_id: {model.voice_id}")
 
     def _log_plan(self, request: PipelineRequestDTO) -> None:
         """Registra o plano de execução antes de iniciar o pipeline."""
         _log.info(f"Estratégia:    {request.strategy.value.upper()}")
         _log.info(f"Modelos:       {request.active_filter or 'todos'}")
         _log.info(f"Limite:        {request.limit if request.limit else 'sem limite'}")
-        _log.info(
-            f"RVC params:    F0={request.rvc_params.f0_method.value}, "
-            f"index_rate={request.rvc_params.index_rate}, "
-            f"protect={request.rvc_params.protect}, "
-            f"pitch={request.rvc_params.pitch}"
-        )
+
+        if isinstance(request.conversion_params, RvcParams):
+            p = request.conversion_params
+            _log.info(
+                f"RVC params:    F0={p.f0_method.value}, "
+                f"index_rate={p.index_rate}, "
+                f"protect={p.protect}, "
+                f"pitch={p.pitch}"
+            )
+        else:
+            p = request.conversion_params
+            _log.info(
+                f"ElevenLabs:    model={p.model_id}, "
+                f"format={p.output_format}"
+            )
 
     def _log_summary(
         self, result: PipelineResultDTO, request: PipelineRequestDTO

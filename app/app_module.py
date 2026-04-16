@@ -5,7 +5,7 @@ Exporta:
     - AppModule (class): Ponto central de inicialização; único consumidor de main.py.
 
 Dependências:
-    - config.yaml: arquivo de configuração do pipeline (caminhos e parâmetros RVC).
+    - config.yaml: arquivo de configuração do pipeline (caminhos e parâmetros de backend).
     - PipelineFactory: conecta os componentes da infraestrutura no caso de uso.
     - PipelineController: recebe e interpreta os argumentos da CLI.
 
@@ -24,6 +24,7 @@ from typing import List
 
 import yaml
 
+from app.core.entities.elevenlabs_params import ElevenLabsParams
 from app.core.entities.pipeline_config import PipelineConfig
 from app.core.entities.rvc_params import RvcParams
 from app.core.enums.f0_method import F0Method
@@ -45,6 +46,9 @@ _ERROR_LOG = os.path.join(_ROOT, "conversion_errors.log")
 class AppModule:
     """
     Módulo raiz: carrega configuração, configura logging e conecta todas as dependências.
+
+    Determina o backend de conversão a partir do argumento --method (rvc ou elevenlabs)
+    e instancia o pipeline correspondente via PipelineFactory.
 
     Métodos Públicos:
         start: Inicializa a aplicação e executa o pipeline via controlador.
@@ -70,8 +74,16 @@ class AppModule:
         config = self._load_config(config_path)
         self._setup_logging()
 
-        use_case = PipelineFactory.create_run_pipeline(config)
-        controller = PipelineController(use_case, config.rvc_params)
+        method = self._resolve_method(argv)
+
+        if method == "elevenlabs":
+            use_case = PipelineFactory.create_elevenlabs_pipeline(config)
+            conversion_params = config.elevenlabs_params
+        else:
+            use_case = PipelineFactory.create_rvc_pipeline(config)
+            conversion_params = config.rvc_params
+
+        controller = PipelineController(use_case, conversion_params)
         controller.execute(argv)
 
     def _resolve_config_path(self, argv: List[str]) -> str:
@@ -88,6 +100,21 @@ class AppModule:
             if arg == "--config" and i + 1 < len(argv):
                 return argv[i + 1]
         return _DEFAULT_CONFIG
+
+    def _resolve_method(self, argv: List[str]) -> str:
+        """
+        Extrai o método de conversão dos argumentos ou retorna o padrão ('rvc').
+
+        Args:
+            argv (List[str]): Argumentos brutos da CLI.
+
+        Returns:
+            str: 'rvc' ou 'elevenlabs'.
+        """
+        for i, arg in enumerate(argv):
+            if arg == "--method" and i + 1 < len(argv):
+                return argv[i + 1]
+        return "rvc"
 
     def _load_config(self, config_path: str) -> PipelineConfig:
         """
@@ -112,6 +139,7 @@ class AppModule:
 
         paths = raw.get("paths", {})
         rvc_raw = raw.get("rvc_defaults", {})
+        elevenlabs_raw = raw.get("elevenlabs", {})
 
         def resolve(key: str, default: str = "") -> str:
             """Resolve caminho relativo em relação à raiz do projeto."""
@@ -130,6 +158,13 @@ class AppModule:
             export_format=rvc_raw.get("export_format", "WAV"),
         )
 
+        elevenlabs_params = ElevenLabsParams(
+            model_id=elevenlabs_raw.get("model_id", "eleven_multilingual_sts_v2"),
+            output_format=elevenlabs_raw.get("output_format", "pcm_16000"),
+        )
+
+        elevenlabs_voices = elevenlabs_raw.get("voices", []) or []
+
         return PipelineConfig(
             models_dir=resolve("models_dir", "models"),
             real_audio_dir=resolve("real_audio_dir", "data/real"),
@@ -137,6 +172,8 @@ class AppModule:
             rvc_engine_dir=resolve("rvc_engine", "rvc_engine"),
             rvc_params=rvc_params,
             active_models=raw.get("active_models", []) or [],
+            elevenlabs_params=elevenlabs_params,
+            elevenlabs_voices=elevenlabs_voices,
         )
 
     def _setup_logging(self) -> None:

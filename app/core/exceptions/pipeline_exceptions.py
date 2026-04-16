@@ -7,6 +7,7 @@ Exporta:
     - AudioInputError: diretório de áudio real ausente ou vazio.
     - ConfigNotFoundError: arquivo config.yaml não encontrado.
     - RvcEngineError: engine RVC não disponível ou não inicializável.
+    - ElevenLabsError: API ElevenLabs indisponível ou chave inválida.
     - ConversionError: falha na conversão de um arquivo de áudio específico.
 
 Utilizado por:
@@ -14,6 +15,7 @@ Utilizado por:
     - app.infrastructure.repositories.model_repository
     - app.infrastructure.repositories.audio_repository
     - app.infrastructure.providers.rvc_provider
+    - app.infrastructure.providers.elevenlabs_provider
     - app.app_module
 """
 
@@ -36,6 +38,10 @@ class ConfigNotFoundError(PipelineError):
 
 class RvcEngineError(PipelineError):
     """Levantada quando o engine RVC não pode ser localizado ou inicializado."""
+
+
+class ElevenLabsError(PipelineError):
+    """Levantada quando a API ElevenLabs está indisponível ou a chave de API é inválida."""
 
 
 class ConversionError(PipelineError):

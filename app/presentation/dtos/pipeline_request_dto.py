@@ -10,10 +10,10 @@ Utilizado por:
     - app.core.use_cases.run_pipeline_use_case
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional
 
-from app.core.entities.rvc_params import RvcParams
+from app.core.entities.conversion_params import ConversionParams
 from app.core.enums.assignment_strategy import AssignmentStrategy
 
 
@@ -24,7 +24,8 @@ class PipelineRequestDTO:
 
     Atributos:
         strategy (AssignmentStrategy): Estratégia de distribuição dos arquivos entre modelos.
-        rvc_params (RvcParams): Parâmetros de inferência RVC carregados do config.yaml.
+        conversion_params (ConversionParams): Parâmetros de inferência do backend ativo
+            (RvcParams ou ElevenLabsParams), carregados do config.yaml.
         active_filter (Optional[List[str]]): Nomes de modelos a processar; None = todos.
         limit (Optional[int]): Máximo de arquivos por modelo; None = todos os pendentes.
         is_test_mode (bool): Se True, indica que o limite foi aplicado pelo modo de teste.
@@ -34,7 +35,7 @@ class PipelineRequestDTO:
     """
 
     strategy: AssignmentStrategy
-    rvc_params: RvcParams
+    conversion_params: ConversionParams
     active_filter: Optional[List[str]] = None
     limit: Optional[int] = None
     is_test_mode: bool = False

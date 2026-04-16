@@ -36,10 +36,12 @@ class ManifestMethod(str, Enum):
 
     Atributos:
         RVC (str): Retrieval-Based Voice Conversion via engine Applio.
+        ELEVENLABS (str): Speech-to-speech via API ElevenLabs.
         NONE (str): Sem método aplicável (áudios reais).
     """
 
     RVC = "rvc"
+    ELEVENLABS = "elevenlabs"
     NONE = ""
 
 
