@@ -20,6 +20,7 @@ data/
 
 # Logs e Temporários
 *.log
+*.pyc
 __pycache__/
 .DS_Store
 _tmp_extract/

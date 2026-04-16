@@ -1,130 +1,132 @@
-# RVC Multi-Voice Deepfake Dataset Generator
+# Golden Dataset — Deepfake Voice Generator
 
-Pipeline para gerar um **golden dataset** de áudios deepfake a partir de vozes reais. Converte clipes do [Mozilla Common Voice](https://commonvoice.mozilla.org/) usando múltiplos modelos **RVC v2** (via Applio Engine) para criar pares real/fake destinados ao treino de detectores de áudio sintético.
+Pipeline para gerar um **golden dataset** de áudios deepfake a partir de vozes reais. Converte clipes do [Mozilla Common Voice](https://commonvoice.mozilla.org/) usando **RVC v2** (Applio Engine) e/ou **ElevenLabs speech-to-speech** para criar pares real/fake destinados à validação de detectores de áudio sintético.
 
-## Estrutura do Projeto
+## Estrutura
 
-```text
+```
 golden_dataset/
-├── main.py                  # Entry point da aplicação
-├── config.yaml              # Configuração central (parâmetros RVC, caminhos)
-├── requirements.txt         # Dependências diretas do projeto
 │
-├── app/                     # Código-fonte (Clean Architecture — ExACTa-PUC)
-│   ├── app_module.py        # Módulo raiz: carrega config, injeta dependências
-│   ├── core/                # Núcleo — sem dependências externas
-│   │   ├── constants/       # Constantes configuráveis
-│   │   ├── entities/        # VoiceModel, AudioFile, RvcParams, PipelineConfig...
-│   │   ├── enums/           # AssignmentStrategy, F0Method
-│   │   ├── exceptions/      # Exceções de domínio tipadas
-│   │   ├── interfaces/      # Contratos (IModelRepository, IVoiceConverter...)
-│   │   └── use_cases/       # RunPipelineUseCase
-│   ├── presentation/        # Camada de interação com o usuário
-│   │   ├── controllers/     # PipelineController (CLI → UseCase)
-│   │   └── dtos/            # PipelineRequestDTO, PipelineResultDTO
-│   └── infrastructure/      # Integrações externas
-│       ├── factory.py       # Instancia e injeta dependências
-│       ├── tokens.py        # Identificadores de dependências
-│       ├── mappers/         # ModelMapper (filesystem → VoiceModel)
-│       ├── providers/       # RvcProvider (wraps Applio VoiceConverter)
-│       ├── repositories/    # ModelRepository, AudioRepository
-│       └── services/        # FileAssignmentService (stratified / cross)
+├── main.py                  # Ponto de entrada — CLI
+├── config.yaml              # Configuração central
+├── requirements.txt
+├── .env                     # Chaves de API (não commitado)
 │
-├── models/                  # Modelos de voz RVC (um por subpasta)
-│   └── <nome_da_voz>/       # └── <modelo>.pth + <modelo>.index
+├── pipeline/
+│   ├── config.py            # Carrega config.yaml
+│   ├── audio.py             # Lê WAVs reais, encontra pendentes
+│   ├── assignment.py        # Distribui arquivos entre vozes
+│   ├── manifest.py          # Lê e escreve o CSV ground truth
+│   ├── rvc.py               # Conversão via Applio RVC v2
+│   ├── elevenlabs.py        # Conversão via API ElevenLabs STS
+│   └── runner.py            # Orquestra o pipeline completo
+│
+├── models/                  # Modelos RVC (um por subpasta)
+│   └── <voz>/               # <modelo>.pth + <modelo>.index
 │
 ├── data/
-│   ├── real/                # Áudios reais (Common Voice, 16 kHz WAV mono)
-│   └── fake/                # Deepfakes gerados, organizados por modelo
-│       └── <nome_da_voz>/
+│   ├── real/                # Áudios reais (WAV 16 kHz mono)
+│   ├── fake/                # Deepfakes gerados, por voz
+│   └── manifest.csv         # Ground truth do dataset
 │
 ├── scripts/
-│   ├── setup_env.bat        # Bootstrap do ambiente Python portátil (Windows)
-│   └── extract_corpus.py    # Extração do Common Voice → data/real/
+│   ├── setup_env.bat        # Instala Python portátil + dependências RVC
+│   └── extract_corpus.py    # Extrai Common Voice → data/real/
 │
-├── rvc_engine/              # Submódulo Applio RVC v2 (engine de conversão)
-└── py/                      # Python 3.10 portátil (gerado pelo setup_env.bat)
+├── rvc_engine/              # Submódulo Applio RVC v2
+└── py/                      # Python 3.10 portátil (gerado pelo setup)
 ```
 
-## Como Usar
-
-### 1. Setup do Ambiente
+## Setup
 
 ```powershell
+# 1. Instala o ambiente (Python portátil + RVC)
 scripts\setup_env.bat
+
+# 2. Instala dependências do pipeline
+.\py\python.exe -m pip install -r requirements.txt
+
+# 3. Extrai os áudios reais do Common Voice
+.\py\python.exe scripts\extract_corpus.py
 ```
 
-Instala um Python 3.10 portátil em `py/` com todas as dependências RVC. Não requer Python instalado no sistema.
-
-### 2. Adicionar Modelos de Voz
-
-Coloque os arquivos `.pth` e `.index` de cada modelo em `models/<nome_da_voz>/`:
-
-```text
-models/
-├── ronaldo/
-│   ├── Ronaldo.pth
-│   └── added_IVF370_Flat_nprobe_1_Ronaldo_v2.index
-└── lula/
-    ├── Lula.pth
-    └── Lula.index
-```
-
-### 3. Extrair Corpus de Áudios Reais
+## Uso
 
 ```powershell
-.\py\python.exe scripts\extract_corpus.py             # 8.000 clipes (padrão)
-.\py\python.exe scripts\extract_corpus.py --limit 100 # Amostra menor
-```
-
-### 4. Gerar Deepfakes
-
-```powershell
-# Listar modelos detectados
-.\py\python.exe main.py --list-models
-
-# Teste rápido (5 arquivos por voz, stratified)
+# Modo teste — 5 arquivos por voz (padrão)
 .\py\python.exe main.py
+
+# Lote completo
+.\py\python.exe main.py --full
+
+# ElevenLabs (requer ELEVENLABS_API_KEY no .env e plano pago)
+.\py\python.exe main.py --method elevenlabs --full
 
 # Apenas uma voz específica
 .\py\python.exe main.py --voice ronaldo --limit 20
 
-# Lote completo — stratified (total_fake ≈ total_real)
-.\py\python.exe main.py --full
-
-# Lote completo — cross (cada áudio convertido por todos os modelos)
+# Cross: cada áudio convertido por todas as vozes
 .\py\python.exe main.py --strategy cross --full
+
+# Listar modelos/vozes disponíveis
+.\py\python.exe main.py --list-models
+.\py\python.exe main.py --list-models --method elevenlabs
 ```
 
 ## Estratégias de Atribuição
 
-| Estratégia | Comportamento | Conversões totais |
+| Estratégia | Comportamento | Total de conversões |
 |---|---|---|
-| `stratified` (padrão) | Divide os áudios por round-robin entre os modelos | `total_real` |
-| `cross` | Cada áudio é convertido por todos os modelos | `total_real × N_modelos` |
+| `stratified` (padrão) | Round-robin — cada voz recebe ~1/N dos áudios | `total_real` |
+| `cross` | Todos os áudios em todas as vozes | `total_real × N_vozes` |
 
-## Parâmetros RVC
+## Configuração — RVC (`config.yaml`)
 
-Configuráveis via `config.yaml` na seção `rvc_defaults`:
+```yaml
+rvc_defaults:
+  f0_method: rmvpe        # rmvpe | fcpe | crepe | harvest
+  index_rate: 0.75        # peso do índice FAISS (0.0–1.0)
+  protect: 0.33           # proteção de consoantes (0.0–0.5)
+  volume_envelope: 0.25
+  hop_length: 128
+  pitch: 0
+```
 
-| Parâmetro | Padrão | Descrição |
-|---|---|---|
-| `f0_method` | `rmvpe` | Algoritmo de extração de pitch (rmvpe, fcpe, crepe, harvest) |
-| `index_rate` | `0.75` | Peso do índice FAISS na identidade vocal (0.0–1.0) |
-| `protect` | `0.33` | Proteção de consoantes contra artefatos (0.0–0.5) |
-| `volume_envelope` | `0.25` | Mistura de envelope de volume origem/destino (0.0–1.0) |
-| `hop_length` | `128` | Tamanho do salto de quadro para extração de F0 |
-| `pitch` | `0` | Deslocamento de pitch em semitons (0 = sem alteração) |
+## Configuração — ElevenLabs (`config.yaml` + `.env`)
+
+```yaml
+# config.yaml
+elevenlabs:
+  model_id: eleven_multilingual_sts_v2
+  output_format: pcm_16000
+  voices:
+    - name: pt_voice_1
+      voice_id: SEU_VOICE_ID
+```
+
+```env
+# .env
+ELEVENLABS_API_KEY=sua_chave_aqui
+```
+
+## Manifesto
+
+Após cada execução, `data/manifest.csv` é atualizado com todas as entradas do dataset:
+
+| Campo | Descrição |
+|---|---|
+| `filename` | Nome do arquivo WAV |
+| `label` | `real` ou `fake` |
+| `method` | `rvc`, `elevenlabs` ou vazio (reais) |
+| `voice_model` | Nome da voz usada na conversão |
+| `source_file` | Áudio real de origem |
+| `generated_at` | Timestamp ISO 8601 |
 
 ## Logs
 
-- **Console**: mensagens `[INFO]` / `[WARNING]` / `[CRITICAL]` em tempo real.
-- **`conversion_errors.log`**: registro estruturado de falhas por arquivo (`timestamp | modelo | arquivo | erro`).
+- **Console**: `INFO` / `WARNING` / `ERROR` em tempo real.
+- **`conversion_errors.log`**: falhas por arquivo no formato `timestamp | voz | arquivo | erro`.
 
-## Performance (CPU Only)
+---
 
-~5–20 segundos por áudio. Para 8.000 arquivos com 6 modelos em estratégia `stratified` (~1.333 por modelo), estimar ~4–7 horas de CPU.
-
-## Uso
-
-Projeto destinado exclusivamente a **pesquisa em segurança cibernética** e detecção de mídias sintéticas.
+Projeto destinado a **pesquisa acadêmica** em detecção de deepfakes de voz — ExACTa-PUC.
