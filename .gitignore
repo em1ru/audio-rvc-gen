@@ -14,6 +14,7 @@ cv-corpus-*.tar.gz
 data/
 *.wav
 *.mp3
+*.rar
 
 # Variáveis de ambiente (chaves de API, tokens)
 .env
