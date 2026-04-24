@@ -11,7 +11,8 @@ logs/
 
 # Datasets e Áudios
 cv-corpus-*.tar.gz
-data/
+data/real/
+data/fake/
 *.wav
 *.mp3
 *.rar
