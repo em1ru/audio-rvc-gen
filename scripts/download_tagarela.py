@@ -65,7 +65,9 @@ def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     log.info(f"Conectando ao {DATASET_NAME} via streaming...")
+    from datasets import Audio
     dataset = load_dataset(DATASET_NAME, split="train", streaming=True)
+    dataset = dataset.cast_column("audio", Audio(decode=False))
     dataset = dataset.filter(lambda x: x.get("accent") == ACCENT_FILTER)
 
     new_entries = []
@@ -142,13 +144,19 @@ def _next_index(done_filenames: set) -> int:
 
 
 def _save_sample(sample, out_path: Path) -> str | None:
+    import io
+    import soundfile as sf
+
     try:
-        audio = sample["audio"]
-        array = np.array(audio["array"], dtype=np.float32)
-        sr = audio["sampling_rate"]
+        audio_data = sample["audio"]
+        audio_bytes = audio_data.get("bytes") if isinstance(audio_data, dict) else None
+        if not audio_bytes:
+            return "Sem bytes de áudio na amostra."
+
+        array, sr = sf.read(io.BytesIO(audio_bytes), dtype="float32")
 
         if array.ndim > 1:
-            array = array.mean(axis=0)
+            array = array.mean(axis=1)
 
         if sr != TARGET_SR:
             try:
