@@ -72,6 +72,7 @@ def main():
 
     new_entries = []
     errors = 0
+    total_saved = 0
     idx = _next_index(done_filenames)
 
     try:
@@ -81,7 +82,7 @@ def main():
         bar = None
 
     for sample in dataset:
-        if len(new_entries) >= remaining:
+        if total_saved >= remaining:
             break
 
         filename = f"tagarela_{idx:06d}.wav"
@@ -101,7 +102,7 @@ def main():
                 label="real",
                 method="tagarela",
                 voice_model="",
-                source_file=sample.get("path", ""),
+                source_file=sample["audio"].get("path", "") if isinstance(sample.get("audio"), dict) else "",
                 f0_method="",
                 index_rate=None,
                 protect=None,
@@ -110,6 +111,7 @@ def main():
                 pitch=None,
                 generated_at=_now(),
             ))
+            total_saved += 1
             idx += 1
 
         if bar:
