@@ -12,7 +12,7 @@ from pipeline.config import RvcConfig
 log = logging.getLogger(__name__)
 
 _FIELDS = [
-    "filename", "label", "method", "voice_model", "source_file",
+    "filename", "filepath", "label", "method", "voice_model", "source_file",
     "f0_method", "index_rate", "protect", "volume_envelope",
     "hop_length", "pitch", "generated_at",
 ]
@@ -22,7 +22,7 @@ _FIELDS = [
 class ManifestEntry:
     filename: str
     label: str            # "real" | "fake"
-    method: str           # "" | "rvc" | "elevenlabs"
+    method: str           # "" | "rvc" | "elevenlabs" | "tagarela" | "common_voice"
     voice_model: str
     source_file: str
     f0_method: str
@@ -32,6 +32,7 @@ class ManifestEntry:
     hop_length: Optional[int]
     pitch: Optional[int]
     generated_at: str
+    filepath: str = ""    # caminho relativo a partir de data/ (preenchido pelo flatten)
 
 
 def load(path: str) -> List[ManifestEntry]:
@@ -54,6 +55,7 @@ def load(path: str) -> List[ManifestEntry]:
                     hop_length=int(row["hop_length"]) if row.get("hop_length") else None,
                     pitch=int(row["pitch"]) if row.get("pitch") else None,
                     generated_at=row.get("generated_at", ""),
+                    filepath=row.get("filepath", ""),
                 ))
             except (KeyError, ValueError) as e:
                 log.warning(f"Linha ignorada no manifesto: {e}")
@@ -69,6 +71,7 @@ def save(path: str, entries: List[ManifestEntry]) -> None:
         for e in entries:
             w.writerow({
                 "filename": e.filename,
+                "filepath": e.filepath,
                 "label": e.label,
                 "method": e.method,
                 "voice_model": e.voice_model,
